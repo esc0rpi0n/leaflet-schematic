@@ -98,7 +98,7 @@ module.exports = SvgLayer.extend({
       var child = svg.lastChild;
       do {
         this._group.appendChild(child);
-        child = svg.firstlastChild;
+        child = svg.firstChild;
       } while(child);
     } else {
       this._group.innerHTML = svg.innerHTML;
