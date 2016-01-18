@@ -95,7 +95,7 @@ module.exports = SvgLayer.extend({
 
     this._group = L.Path.prototype._createElement('g');
     if (L.Browser.ie) {
-      var child = svg.lastChild;
+      var child = svg.firstChild;
       do {
         this._group.appendChild(child);
         child = svg.firstChild;
