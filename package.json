@@ -1,10 +1,10 @@
 {
   "name": "leaflet-svg-viewer",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Leaflet SVG viewer for non-cartographic high-detailed schematics",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo \"Error: no test specified\" && exit 0",
     "start": "watchify -v -d -t [ babelify --presets [ es2015 ] ] demo/js/index.js -o demo/js/build.js & serve -p 3002",
     "build": "browserify -v -d -t [ babelify --presets [ es2015 ] ] demo/js/index.js -o demo/js/build.js"
   },
