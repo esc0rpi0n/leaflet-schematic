@@ -1,17 +1,18 @@
+var L        = require('leaflet');
 var SvgLayer = require('./svglayer');
-var xhr      = require('xhr');
 var b64      = require('Base64');
 
 require('./bounds');
 require('./utils');
 
-
-
-module.exports = SvgLayer.extend({
+var SVGOverlay = SvgLayer.extend({
 
   options: {
     padding: 0.25,
-    useRaster: L.Browser.ie
+    opacity: 1,
+    useRaster: L.Browser.ie,
+    adjustToScreen: true
+    // load: function(url, callback) {}
   },
 
 
@@ -28,6 +29,11 @@ module.exports = SvgLayer.extend({
      * @type {String}
      */
     this._svg    = svg;
+
+    if (!(bounds instanceof L.LatLngBounds)) {
+      options = bounds;
+      bounds = null;
+    }
 
     /**
      * @type {L.LatLngBounds}
@@ -67,7 +73,7 @@ module.exports = SvgLayer.extend({
     /**
      * @type {String}
      */
-    this._schematicData = '';
+    this._rawData = '';
 
     if (typeof svg === 'string' && !/\<svg/ig.test(svg)) {
       this._svg = null;
@@ -76,6 +82,11 @@ module.exports = SvgLayer.extend({
        * @type {String}
        */
       this._url = svg;
+
+      if (!options.load) {
+        throw new Error('SVGOverlay requires external request implementation. '+
+          'You have to provide `load` function with the options');
+      }
     }
 
     /**
@@ -116,15 +127,14 @@ module.exports = SvgLayer.extend({
    * @param  {String} svg markup
    */
   onLoad: function(svg) {
-    this._schematicData = svg;
+    this._rawData = svg;
     svg = L.DomUtil.getSVGContainer(svg);
     var bbox = this._bbox = L.DomUtil.getSVGBBox(svg);
     var minZoom = this._map.getMinZoom();
 
     if (svg.getAttribute('viewBox') === null) {
-      //console.log('missing', bbox);
-      this._schematicData = this._schematicData.replace('<svg', 
-        '<svg viewBox="' + bbox.join(' ') + 
+      this._rawData = this._rawData.replace('<svg',
+        '<svg viewBox="' + bbox.join(' ') +
         '" preserveAspectRatio="xMaxYMax" ');
     }
 
@@ -137,7 +147,7 @@ module.exports = SvgLayer.extend({
     var size = this.getOriginalSize();
     var mapSize = this._map.getSize();
 
-    if (size.y !== mapSize.y) {
+    if (size.y !== mapSize.y && this.options.adjustToScreen) {
       var ratio = Math.min(mapSize.x / size.x, mapSize.y / size.y);
       this._bounds = this._bounds.scale(ratio);
       this._ratio = ratio;
@@ -149,7 +159,7 @@ module.exports = SvgLayer.extend({
       1, this._origin.x, 1, this._origin.y);
 
     this._group = L.Path.prototype._createElement('g');
-    if (L.Browser.ie) {
+    if (L.Browser.ie) { // innerHTML doesn't work for SVG in IE
       var child = svg.firstChild;
       do {
         this._group.appendChild(child);
@@ -167,10 +177,26 @@ module.exports = SvgLayer.extend({
 
 
   /**
+   * @return {SVGElement}
+   */
+  getDocument: function() {
+    return this._group;
+  },
+
+
+  /**
    * @return {L.LatLngBounds}
    */
   getBounds: function() {
     return this._bounds;
+  },
+
+
+  /**
+   * @return {Number}
+   */
+  getRatio: function() {
+    return this._ratio;
   },
 
 
@@ -190,6 +216,17 @@ module.exports = SvgLayer.extend({
    */
   unprojectPoint: function(pt) {
     return this._map.unproject(this._scalePoint(pt), this._map.getMinZoom());
+  },
+
+
+  /**
+   * @param {Number} opacity
+   * @return {SVGLayer}
+   */
+  setOpacity: function (opacity) {
+    this.options.opacity = opacity;
+    this._updateOpacity();
+    return this;
   },
 
 
@@ -221,20 +258,17 @@ module.exports = SvgLayer.extend({
    * Loads svg via XHR
    */
   load: function() {
-    xhr({
-      uri: this._url,
-      headers: {
-        "Content-Type": "image/svg+xml"
+    this.options.load(this._url, function(err, svg) {
+      if (!err) {
+        this.onLoad(svg);
       }
-    }, function (err, resp, svg) {
-      this.onLoad(svg);
-    }.bind(this))
+    }.bind(this));
   },
 
 
   /**
    * @param  {L.Map} map
-   * @return {SvgOverlay}
+   * @return {SVGOverlay}
    */
   onAdd: function(map) {
     SvgLayer.prototype.onAdd.call(this, map);
@@ -256,7 +290,7 @@ module.exports = SvgLayer.extend({
 
   /**
    * @param  {L.Map} map
-   * @return {SvgOverlay}
+   * @return {SVGOverlay}
    */
   onRemove: function(map) {
     SvgLayer.prototype.onRemove.call(this, map);
@@ -272,7 +306,7 @@ module.exports = SvgLayer.extend({
   /**
    * @param  {Function} callback
    * @param  {*=}       context
-   * @return {SvgOverlay}
+   * @return {SVGOverlay}
    */
   whenReady: function(callback, context) {
     if (this._bounds) {
@@ -330,7 +364,7 @@ module.exports = SvgLayer.extend({
   toBase64: function() {
     //console.time('base64');
     var base64 = this._base64encoded ||
-      b64.btoa(unescape(encodeURIComponent(this._schematicData)));
+      b64.btoa(unescape(encodeURIComponent(this._rawData)));
     this._base64encoded = base64;
     //console.timeEnd('base64');
 
@@ -364,7 +398,7 @@ module.exports = SvgLayer.extend({
   /**
    * Scales projected point TO viewportized schematic ratio
    * @param  {L.Point} pt
-   * @return {L.Point}   
+   * @return {L.Point}
    */
   _scalePoint: function(pt) {
     return this._transformation.transform(
@@ -430,6 +464,19 @@ module.exports = SvgLayer.extend({
   },
 
 
+  /**
+   * Sets conatiner opacity
+   */
+  _updateOpacity: function() {
+    L.DomUtil.setOpacity(this._container, this.options.opacity);
+  },
+
+
+  /**
+   * Redraw shifed canvas
+   * @param  {L.Point} topLeft
+   * @param  {L.Point} size
+   */
   _redrawCanvas: function(topLeft, size) {
     if (this._canvas) {
       var vp = this._getViewport();
@@ -473,21 +520,31 @@ module.exports = SvgLayer.extend({
     var scale   = Math.pow(2, this._map.getZoom() - 1) * this._ratio;
     var topLeft = this._map.latLngToLayerPoint(this._bounds.getNorthWest());
     var size    = this.getOriginalSize().multiplyBy(scale);
+    var vpMin   = this._getViewport().min;
 
     if (this._raster) {
-      //console.log(size, scale);
       this._raster.style.width = size.x + 'px';
       this._raster.style.height = size.y + 'px';
-      L.DomUtil.setPosition(this._raster, this._getViewport().min);
+      L.DomUtil.setPosition(this._raster, vpMin);
     }
 
     if (this._canvas) {
       this._redrawCanvas(topLeft, size);
-      L.DomUtil.setPosition(this._canvas, this._getViewport().min);
+      L.DomUtil.setPosition(this._canvas, vpMin);
     }
 
     this._group.setAttribute('transform',
-      L.DomUtil.getMatrixString(topLeft, scale));
+      L.DomUtil.getMatrixString(
+        topLeft.subtract(L.point(this._bbox[0], this._bbox[1])
+          .multiplyBy(scale)), scale));
   }
 
 });
+
+// export
+L.SVGOverlay = SVGOverlay;
+L.svgOverlay = function(svg, options) {
+  return new SVGOverlay(svg, options);
+};
+
+module.exports = SVGOverlay;

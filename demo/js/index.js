@@ -1,5 +1,7 @@
-var L = global.L || require('leaflet');
-var SvgOverlay = require('../../src/svgoverlay');
+var L = require('leaflet');
+var SvgOverlay = global.SvgOverlay = require('../../src/svgoverlay');
+var xhr = global.xhr = require('xhr');
+
 global.SvgLayer = require('../../src/svglayer');
 
 // create the slippy map
@@ -12,16 +14,6 @@ var map = window.map = L.map('image-map', {
   inertia: !L.Browser.ie
 });
 
-var drawnItems = L.featureGroup().addTo(map);
-var drawControl = new L.Control.Draw({
-    edit: {
-        featureGroup: drawnItems
-    }
-});
-map.on('draw:created', function (e) {
-  map.addLayer(e.layer);
-});
-
 var svg = global.svg = null;
 
 map.on('click', function(e) {
@@ -30,10 +22,20 @@ map.on('click', function(e) {
 
 var select = document.querySelector('#select-schematic');
 function onSelect() {
-  console.log(this.value);
   if (svg) map.removeLayer(svg);
 
-  svg = global.svg = new SvgOverlay(this.value)
+  svg = global.svg = new SvgOverlay(this.value, {
+    load: function(url, callback) {
+      xhr({
+        uri: url,
+        headers: {
+          "Content-Type": "image/svg+xml"
+        }
+      }, function (err, resp, svg) {
+        callback(err, svg);
+      });
+    }
+  })
     .once('load', function() {
       map.fitBounds(svg.getBounds(), { animate: false });
     }).addTo(map);
